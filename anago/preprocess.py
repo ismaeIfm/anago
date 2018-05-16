@@ -11,7 +11,6 @@ PAD = '<PAD>'
 
 
 class WordPreprocessor(BaseEstimator, TransformerMixin):
-
     def __init__(self,
                  lowercase=True,
                  num_norm=True,
@@ -27,23 +26,24 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
         self.return_lengths = return_lengths
         self.vocab_word = None
         self.vocab_char = None
-        self.vocab_tag  = None
+        self.vocab_tag = None
         self.vocab_init = vocab_init or {}
 
     def fit(self, X, y):
         words = {PAD: 0, UNK: 1}
         chars = {PAD: 0, UNK: 1}
-        tags  = {PAD: 0}
-
-        for w in set(itertools.chain(*X)) | set(self.vocab_init):
+        tags = {PAD: 0}
+        _vocab = self.vocab_init if self.vocab_init else set(
+            itertools.chain(*X))
+        for w in _vocab:
+            w = self._lower(w)
+            w = self._normalize_num(w)
             if not self.char_feature:
                 continue
             for c in w:
                 if c not in chars:
                     chars[c] = len(chars)
 
-            w = self._lower(w)
-            w = self._normalize_num(w)
             if w not in words:
                 words[w] = len(words)
 
@@ -53,7 +53,7 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
 
         self.vocab_word = words
         self.vocab_char = chars
-        self.vocab_tag  = tags
+        self.vocab_tag = tags
 
         return self
 
@@ -93,11 +93,11 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
             char_ids = []
             lengths.append(len(sent))
             for w in sent:
+                w = self._lower(w)
+                w = self._normalize_num(w)
                 if self.char_feature:
                     char_ids.append(self._get_char_ids(w))
 
-                w = self._lower(w)
-                w = self._normalize_num(w)
                 if w in self.vocab_word:
                     word_id = self.vocab_word[w]
                 else:
@@ -116,10 +116,10 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
         else:
             sents = [words, chars]
 
-        if self.return_lengths:
-            lengths = np.asarray(lengths, dtype=np.int32)
-            lengths = lengths.reshape((lengths.shape[0], 1))
-            sents.append(lengths)
+        #if self.return_lengths:
+        #    lengths = np.asarray(lengths, dtype=np.int32)
+        #    lengths = lengths.reshape((lengths.shape[0], 1))
+        #    sents.append(lengths)
 
         return (sents, y) if y is not None else sents
 
@@ -149,14 +149,15 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
         word_ids = np.asarray(word_ids)
 
         if self.char_feature:
-            char_ids, word_lengths = pad_sequences(char_ids, pad_tok=0, nlevels=2)
+            char_ids, word_lengths = pad_sequences(
+                char_ids, pad_tok=0, nlevels=2)
             char_ids = np.asarray(char_ids)
             return [word_ids, char_ids], labels
         else:
             return word_ids, labels
 
     def save(self, file_path):
-        joblib.dump(self, file_path)
+        joblib.dump(self, file_path, protocol=2)
 
     @classmethod
     def load(cls, file_path):
@@ -195,7 +196,8 @@ def pad_sequences(sequences, pad_tok, nlevels=1):
     """
     if nlevels == 1:
         max_length = len(max(sequences, key=len))
-        sequence_padded, sequence_length = _pad_sequences(sequences, pad_tok, max_length)
+        sequence_padded, sequence_length = _pad_sequences(
+            sequences, pad_tok, max_length)
     elif nlevels == 2:
         max_length_word = max(len(max(seq, key=len)) for seq in sequences)
         sequence_padded, sequence_length = [], []
@@ -206,10 +208,13 @@ def pad_sequences(sequences, pad_tok, nlevels=1):
             sequence_length += [sl]
 
         max_length_sentence = max(map(lambda x: len(x), sequences))
-        sequence_padded, _ = _pad_sequences(sequence_padded, [pad_tok] * max_length_word, max_length_sentence)
-        sequence_length, _ = _pad_sequences(sequence_length, 0, max_length_sentence)
+        sequence_padded, _ = _pad_sequences(
+            sequence_padded, [pad_tok] * max_length_word, max_length_sentence)
+        sequence_length, _ = _pad_sequences(sequence_length, 0,
+                                            max_length_sentence)
     else:
-        raise ValueError('nlevels can take 1 or 2, not take {}.'.format(nlevels))
+        raise ValueError(
+            'nlevels can take 1 or 2, not take {}.'.format(nlevels))
 
     return sequence_padded, sequence_length
 
@@ -226,7 +231,8 @@ def dense_to_one_hot(labels_dense, num_classes, nlevels=1):
         # assume that labels_dense has same column length
         num_labels = labels_dense.shape[0]
         num_length = labels_dense.shape[1]
-        labels_one_hot = np.zeros((num_labels, num_length, num_classes), dtype=np.int32)
+        labels_one_hot = np.zeros(
+            (num_labels, num_length, num_classes), dtype=np.int32)
         layer_idx = np.arange(num_labels).reshape(num_labels, 1)
         # this index selects each component separately
         component_idx = np.tile(np.arange(num_length), (num_labels, 1))
@@ -234,7 +240,8 @@ def dense_to_one_hot(labels_dense, num_classes, nlevels=1):
         labels_one_hot[layer_idx, component_idx, labels_dense] = 1
         return labels_one_hot
     else:
-        raise ValueError('nlevels can take 1 or 2, not take {}.'.format(nlevels))
+        raise ValueError(
+            'nlevels can take 1 or 2, not take {}.'.format(nlevels))
 
 
 def prepare_preprocessor(X, y, use_char=True, vocab_init=None):
