@@ -71,7 +71,8 @@ class BiLSTMCRF(BaseModel):
                  dropout=0.5,
                  embeddings=None,
                  use_char=True,
-                 use_crf=True):
+                 use_crf=True,
+                 train_embeddings=True):
         """Build a Bi-LSTM CRF model.
 
         Args:
@@ -102,6 +103,7 @@ class BiLSTMCRF(BaseModel):
         self._embeddings = embeddings
         self._num_labels = num_labels
         self._loss = None
+        self._train_embeddings = train_embeddings
 
     def build(self):
         # build word embedding
@@ -115,6 +117,7 @@ class BiLSTMCRF(BaseModel):
         else:
             word_embeddings = Embedding(input_dim=self._embeddings.shape[0],
                                         output_dim=self._embeddings.shape[1],
+                                        trainable=self._train_embeddings,
                                         mask_zero=True,
                                         weights=[self._embeddings])(word_ids)
 

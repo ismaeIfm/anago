@@ -8,6 +8,7 @@ from collections import Counter
 
 import numpy as np
 import requests
+from nltk.stem.wordnet import WordNetLemmatizer
 
 
 def download(url, save_dir='.'):
@@ -65,7 +66,10 @@ def load_data_and_labels(filename):
         for line in f:
             line = line.rstrip()
             if line:
-                word, tag = line.split('\t')
+                try:
+                    word, tag = line.split('\t')
+                except:
+                    import pdb; pdb.set_trace()
                 words.append(word)
                 tags.append(tag)
             else:
@@ -111,7 +115,7 @@ class Vocabulary(object):
         _id2token: A list of token strings indexed by their numerical identifiers.
     """
 
-    def __init__(self, max_size=None, lower=True, unk_token=True, specials=('<pad>',)):
+    def __init__(self, max_size=None, lower=True, unk_token=True, specials=('<pad>',), lemma=False):
         """Create a Vocabulary object.
 
         Args:
@@ -128,6 +132,7 @@ class Vocabulary(object):
         self._token2id = {token: i for i, token in enumerate(specials)}
         self._id2token = list(specials)
         self._token_count = Counter()
+        self._lemma = WordNetLemmatizer() if lemma else None
 
     def __len__(self):
         return len(self._token2id)
@@ -205,6 +210,8 @@ class Vocabulary(object):
         """
         if self._lower:
             token = token.lower()
+        if self._lemma:
+            token = self._lemma.lemmatize(token)
 
         return token
 

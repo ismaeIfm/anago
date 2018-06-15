@@ -23,6 +23,7 @@ class Sequence(object):
                  use_char=True,
                  use_crf=True,
                  initial_vocab=None,
+                 train_embeddings=True,
                  optimizer='adam'):
 
         self.model = None
@@ -40,9 +41,11 @@ class Sequence(object):
         self.use_crf = use_crf
         self.initial_vocab = initial_vocab
         self.optimizer = optimizer
+        self.train_embeddings = train_embeddings
 
     def fit(self, x_train, y_train, x_valid=None, y_valid=None,
-            epochs=1, batch_size=32, verbose=1, callbacks=None, shuffle=True):
+            epochs=1, batch_size=32, verbose=1, callbacks=None, shuffle=True,
+            add_word_docs=True):
         """Fit the model for a fixed number of epochs.
 
         Args:
@@ -62,7 +65,7 @@ class Sequence(object):
                 before each epoch). `shuffle` will default to True.
         """
         p = IndexTransformer(initial_vocab=self.initial_vocab, use_char=self.use_char)
-        p.fit(x_train, y_train)
+        p.fit(x_train, y_train, add_word_docs=add_word_docs)
         embeddings = filter_embeddings(self.embeddings, p._word_vocab.vocab, self.word_embedding_dim)
 
         model = BiLSTMCRF(char_vocab_size=p.char_vocab_size,
@@ -75,6 +78,7 @@ class Sequence(object):
                           fc_dim=self.fc_dim,
                           dropout=self.dropout,
                           embeddings=embeddings,
+                          train_embeddings=self.train_embeddings,
                           use_char=self.use_char,
                           use_crf=self.use_crf)
         model.build()

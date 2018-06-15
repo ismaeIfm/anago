@@ -40,7 +40,7 @@ class IndexTransformer(BaseEstimator, TransformerMixin):
         """
         self._num_norm = num_norm
         self._use_char = use_char
-        self._word_vocab = Vocabulary(lower=lower)
+        self._word_vocab = Vocabulary(lower=lower, lemma=True)
         self._char_vocab = Vocabulary(lower=False)
         self._label_vocab = Vocabulary(lower=False, unk_token=False)
 
@@ -48,7 +48,7 @@ class IndexTransformer(BaseEstimator, TransformerMixin):
             self._word_vocab.add_documents([initial_vocab])
             self._char_vocab.add_documents(initial_vocab)
 
-    def fit(self, X, y):
+    def fit(self, X, y, add_word_docs=True):
         """Learn vocabulary from training set.
 
         Args:
@@ -57,7 +57,8 @@ class IndexTransformer(BaseEstimator, TransformerMixin):
         Returns:
             self : IndexTransformer.
         """
-        self._word_vocab.add_documents(X)
+        if add_word_docs:
+            self._word_vocab.add_documents(X)
         self._label_vocab.add_documents(y)
         if self._use_char:
             for doc in X:
@@ -154,7 +155,7 @@ class IndexTransformer(BaseEstimator, TransformerMixin):
         return len(self._label_vocab)
 
     def save(self, file_path):
-        joblib.dump(self, file_path)
+        joblib.dump(self, file_path, protocol=2)
 
     @classmethod
     def load(cls, file_path):
