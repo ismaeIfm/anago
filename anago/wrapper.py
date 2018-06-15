@@ -1,79 +1,142 @@
-import os
+"""
+Wrapper class.
+"""
+from seqeval.metrics import f1_score
 
-import numpy as np
-
-from anago.config import ModelConfig, TrainingConfig
-from anago.evaluator import Evaluator
-from anago.models import SeqLabeling
-from anago.preprocess import prepare_preprocessor, WordPreprocessor, filter_embeddings
+from anago.models import BiLSTMCRF
+from anago.preprocessing import IndexTransformer
 from anago.tagger import Tagger
 from anago.trainer import Trainer
+from anago.utils import filter_embeddings
 
 
 class Sequence(object):
 
-    config_file = 'config.json'
-    weight_file = 'model_weights.h5'
-    preprocessor_file = 'preprocessor.pkl'
+    def __init__(self,
+                 word_embedding_dim=100,
+                 char_embedding_dim=25,
+                 word_lstm_size=100,
+                 char_lstm_size=25,
+                 fc_dim=100,
+                 dropout=0.5,
+                 embeddings=None,
+                 use_char=True,
+                 use_crf=True,
+                 initial_vocab=None,
+                 optimizer='adam'):
 
-    def __init__(self, char_emb_size=25, word_emb_size=100, char_lstm_units=25,
-                 word_lstm_units=100, dropout=0.5, char_feature=True, crf=True,
-                 batch_size=20, optimizer='adam', max_epoch=15,
-                 early_stopping=True, patience=3, train_embeddings=True,
-                 max_checkpoints_to_keep=5, log_dir=None, embeddings=()):
-
-        self.model_config = ModelConfig(char_emb_size, word_emb_size, char_lstm_units,
-                                        word_lstm_units, dropout, char_feature, crf,
-                                        train_embeddings)
-        self.training_config = TrainingConfig(batch_size, optimizer, max_epoch,
-                                              early_stopping, patience,
-                                              max_checkpoints_to_keep)
         self.model = None
         self.p = None
-        self.log_dir = log_dir
+        self.tagger = None
+
+        self.word_embedding_dim = word_embedding_dim
+        self.char_embedding_dim = char_embedding_dim
+        self.word_lstm_size = word_lstm_size
+        self.char_lstm_size = char_lstm_size
+        self.fc_dim = fc_dim
+        self.dropout = dropout
         self.embeddings = embeddings
+        self.use_char = use_char
+        self.use_crf = use_crf
+        self.initial_vocab = initial_vocab
+        self.optimizer = optimizer
 
-    def train(self, x_train, y_train, x_valid=None, y_valid=None, vocab_init=None):
-        self.p = prepare_preprocessor(x_train, y_train, vocab_init=vocab_init)
-        embeddings = filter_embeddings(self.embeddings, self.p.vocab_word,
-                                       self.model_config.word_embedding_size)
-        self.model_config.vocab_size = len(self.p.vocab_word)
-        self.model_config.char_vocab_size = len(self.p.vocab_char)
+    def fit(self, x_train, y_train, x_valid=None, y_valid=None,
+            epochs=1, batch_size=32, verbose=1, callbacks=None, shuffle=True):
+        """Fit the model for a fixed number of epochs.
 
-        self.model = SeqLabeling(self.model_config, embeddings, len(self.p.vocab_tag))
+        Args:
+            x_train: list of training data.
+            y_train: list of training target (label) data.
+            x_valid: list of validation data.
+            y_valid: list of validation target (label) data.
+            batch_size: Integer.
+                Number of samples per gradient update.
+                If unspecified, `batch_size` will default to 32.
+            epochs: Integer. Number of epochs to train the model.
+            verbose: Integer. 0, 1, or 2. Verbosity mode.
+                0 = silent, 1 = progress bar, 2 = one line per epoch.
+            callbacks: List of `keras.callbacks.Callback` instances.
+                List of callbacks to apply during training.
+            shuffle: Boolean (whether to shuffle the training data
+                before each epoch). `shuffle` will default to True.
+        """
+        p = IndexTransformer(initial_vocab=self.initial_vocab, use_char=self.use_char)
+        p.fit(x_train, y_train)
+        embeddings = filter_embeddings(self.embeddings, p._word_vocab.vocab, self.word_embedding_dim)
 
-        trainer = Trainer(self.model,
-                          self.training_config,
-                          checkpoint_path=self.log_dir,
-                          preprocessor=self.p)
-        trainer.train(x_train, y_train, x_valid, y_valid)
+        model = BiLSTMCRF(char_vocab_size=p.char_vocab_size,
+                          word_vocab_size=p.word_vocab_size,
+                          num_labels=p.label_size,
+                          word_embedding_dim=self.word_embedding_dim,
+                          char_embedding_dim=self.char_embedding_dim,
+                          word_lstm_size=self.word_lstm_size,
+                          char_lstm_size=self.char_lstm_size,
+                          fc_dim=self.fc_dim,
+                          dropout=self.dropout,
+                          embeddings=embeddings,
+                          use_char=self.use_char,
+                          use_crf=self.use_crf)
+        model.build()
+        model.compile(loss=model.get_loss(), optimizer=self.optimizer)
 
-    def eval(self, x_test, y_test):
+        trainer = Trainer(model, preprocessor=p)
+        trainer.train(x_train, y_train, x_valid, y_valid,
+                      epochs=epochs, batch_size=batch_size,
+                      verbose=verbose, callbacks=callbacks,
+                      shuffle=shuffle)
+
+        self.p = p
+        self.model = model
+
+    def score(self, x_test, y_test):
+        """Returns the f1-micro score on the given test data and labels.
+
+        Args:
+            x_test : array-like, shape = (n_samples, sent_length)
+            Test samples.
+
+            y_test : array-like, shape = (n_samples, sent_length)
+            True labels for x.
+
+        Returns:
+            score : float, f1-micro score.
+        """
         if self.model:
-            evaluator = Evaluator(self.model, preprocessor=self.p)
-            evaluator.eval(x_test, y_test)
+            x_test = self.p.transform(x_test)
+            length = x_test[-1]
+            y_pred = self.model.predict(x_test)
+            y_pred = self.p.inverse_transform(y_pred, length)
+            score = f1_score(y_test, y_pred)
+            return score
         else:
-            raise (OSError('Could not find a model. Call load(dir_path).'))
+            raise OSError('Could not find a model. Call load(dir_path).')
 
-    def analyze(self, words):
-        if self.model:
-            tagger = Tagger(self.model, preprocessor=self.p)
-            return tagger.analyze(words)
-        else:
-            raise (OSError('Could not find a model. Call load(dir_path).'))
+    def analyze(self, text, tokenizer=str.split):
+        """Analyze text and return pretty format.
 
-    def save(self, dir_path):
-        self.p.save(os.path.join(dir_path, self.preprocessor_file))
-        self.model_config.save(os.path.join(dir_path, self.config_file))
-        self.model.save(os.path.join(dir_path, self.weight_file))
+        Args:
+            text: string, the input text.
+            tokenizer: Tokenize input sentence. Default tokenizer is `str.split`.
+
+        Returns:
+            res: dict.
+        """
+        if not self.tagger:
+            self.tagger = Tagger(self.model,
+                                 preprocessor=self.p,
+                                 tokenizer=tokenizer)
+
+        return self.tagger.analyze(text)
+
+    def save(self, weights_file, params_file, preprocessor_file):
+        self.p.save(preprocessor_file)
+        self.model.save(weights_file, params_file)
 
     @classmethod
-    def load(cls, dir_path):
+    def load(cls, weights_file, params_file, preprocessor_file):
         self = cls()
-        self.p = WordPreprocessor.load(os.path.join(dir_path, cls.preprocessor_file))
-        config = ModelConfig.load(os.path.join(dir_path, cls.config_file))
-        dummy_embeddings = np.zeros((config.vocab_size, config.word_embedding_size), dtype=np.float32)
-        self.model = SeqLabeling(config, dummy_embeddings, ntags=len(self.p.vocab_tag))
-        self.model.load(filepath=os.path.join(dir_path, cls.weight_file))
+        self.p = IndexTransformer.load(preprocessor_file)
+        self.model = BiLSTMCRF.load(weights_file, params_file)
 
         return self

@@ -1,35 +1,59 @@
-from collections import defaultdict
-
+"""
+Model API.
+"""
 import numpy as np
-
-from anago.metrics import get_entities
+from seqeval.metrics.sequence_labeling import get_entities
 
 
 class Tagger(object):
+    """A model API that tags input sentence.
 
-    def __init__(self, model, preprocessor=None):
+    Attributes:
+        model: Model.
+        preprocessor: Transformer. Preprocessing data for feature extraction.
+        tokenizer: Tokenize input sentence. Default tokenizer is `str.split`.
+    """
+
+    def __init__(self, model, preprocessor, tokenizer=str.split):
         self.model = model
         self.preprocessor = preprocessor
+        self.tokenizer = tokenizer
 
-    def predict(self, words):
-        length = np.array([len(words)])
+    def predict_proba(self, text):
+        """Probability estimates.
+
+        The returned estimates for all classes are ordered by the
+        label of classes.
+
+        Args:
+            text : string, the input text.
+
+        Returns:
+            y : array-like, shape = [num_words, num_classes]
+            Returns the probability of the word for each class in the model,
+        """
+        assert isinstance(text, str)
+
+        words = self.tokenizer(text)
         X = self.preprocessor.transform([words])
-        pred = self.model.predict(X, length)
+        y = self.model.predict(X)
+        y = y[0]  # reduce batch dimension.
 
-        return pred
-
-    def _get_tags(self, pred):
-        pred = np.argmax(pred, -1)
-        tags = self.preprocessor.inverse_transform(pred[0])
-
-        return tags
+        return y
 
     def _get_prob(self, pred):
-        prob = np.max(pred, -1)[0]
+        prob = np.max(pred, -1)
 
         return prob
 
-    def _build_response(self, words, tags, prob):
+    def _get_tags(self, pred):
+        tags = self.preprocessor.inverse_transform([pred])
+        tags = tags[0]  # reduce batch dimension
+
+        return tags
+
+    def _build_response(self, sent, tags, prob):
+        words = self.tokenizer(sent)
         res = {
             'words': words,
             'entities': [
@@ -39,6 +63,7 @@ class Tagger(object):
         chunks = get_entities(tags)
 
         for chunk_type, chunk_start, chunk_end in chunks:
+            chunk_end += 1
             entity = {
                 'text': ' '.join(words[chunk_start: chunk_end]),
                 'type': chunk_type,
@@ -50,76 +75,65 @@ class Tagger(object):
 
         return res
 
-    def analyze(self, words):
-        assert isinstance(words, list)
-
-        pred = self.predict(words)
-        tags = self._get_tags(pred)
-        prob = self._get_prob(pred)
-        res = self._build_response(words, tags, prob)
-
-        return res
-
-    def tag(self, words):
-        """Tags a sentence named entities.
+    def analyze(self, text):
+        """Analyze text and return pretty format.
 
         Args:
-            sent: a sentence
-
-        Return:
-            labels_pred: list of (word, tag) for a sentence
-
-        Example:
-            >>> sent = 'President Obama is speaking at the White House.'
-            >>> print(self.tag(sent))
-            [('President', 'O'), ('Obama', 'PERSON'), ('is', 'O'),
-             ('speaking', 'O'), ('at', 'O'), ('the', 'O'),
-             ('White', 'LOCATION'), ('House', 'LOCATION'), ('.', 'O')]
-        """
-        assert isinstance(words, list)
-
-        pred = self.predict(words)
-        pred = [t.split('-')[-1] for t in pred]  # remove prefix: e.g. B-Person -> Person
-
-        return list(zip(words, pred))
-
-    def get_entities(self, words):
-        """Gets entities from a sentence.
-
-        Args:
-            sent: a sentence
-
-        Return:
-            labels_pred: dict of entities for a sentence
-
-        Example:
-            sent = 'President Obama is speaking at the White House.'
-            result = {'Person': ['Obama'], 'LOCATION': ['White House']}
-        """
-        assert isinstance(words, list)
-
-        pred = self.predict(words)
-        entities = self._get_chunks(words, pred)
-
-        return entities
-
-    def _get_chunks(self, words, tags):
-        """
-        Args:
-            words: sequence of word
-            tags: sequence of labels
+            text: string, the input text.
 
         Returns:
-            dict of entities for a sequence
+            res: dict.
 
-        Example:
-            words = ['President', 'Obama', 'is', 'speaking', 'at', 'the', 'White', 'House', '.']
-            tags = ['O', 'B-Person', 'O', 'O', 'O', 'O', 'B-Location', 'I-Location', 'O']
-            result = {'Person': ['Obama'], 'LOCATION': ['White House']}
+        Examples:
+            >>> text = 'President Obama is speaking at the White House.'
+            >>> model.analyze(text)
+            {
+                "words": [
+                    "President",
+                    "Obama",
+                    "is",
+                    "speaking",
+                    "at",
+                    "the",
+                    "White",
+                    "House."
+                ],
+                "entities": [
+                    {
+                        "beginOffset": 1,
+                        "endOffset": 2,
+                        "score": 1,
+                        "text": "Obama",
+                        "type": "PER"
+                    },
+                    {
+                        "beginOffset": 6,
+                        "endOffset": 8,
+                        "score": 1,
+                        "text": "White House.",
+                        "type": "ORG"
+                    }
+                ]
+            }
         """
-        chunks = get_entities(tags)
-        res = defaultdict(list)
-        for chunk_type, chunk_start, chunk_end in chunks:
-            res[chunk_type].append(' '.join(words[chunk_start: chunk_end]))  # todo delimiter changeable
+        pred = self.predict_proba(text)
+        tags = self._get_tags(pred)
+        prob = self._get_prob(pred)
+        res = self._build_response(text, tags, prob)
 
         return res
+
+    def predict(self, text):
+        """Predict using the model.
+
+        Args:
+            text: string, the input text.
+
+        Returns:
+            tags: list, shape = (num_words,)
+            Returns predicted values.
+        """
+        pred = self.predict_proba(text)
+        tags = self._get_tags(pred)
+
+        return tags
