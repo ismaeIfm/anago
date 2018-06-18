@@ -96,10 +96,10 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
             char_ids = []
             lengths.append(len(sent))
             for w in sent:
-                w = self._lower(w)
-                w = self._normalize_num(w)
                 if self.char_feature:
                     char_ids.append(self._get_char_ids(w))
+                w = self._lower(w)
+                w = self._normalize_num(w)
                 w = self.lmtzr.lemmatize(w)
 
                 if w in self.vocab_word:
