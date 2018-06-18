@@ -3,6 +3,7 @@ import itertools
 import re
 
 import numpy as np
+from nltk.stem.wordnet import WordNetLemmatizer
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.externals import joblib
 
@@ -28,6 +29,7 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
         self.vocab_char = None
         self.vocab_tag = None
         self.vocab_init = vocab_init or {}
+        self.lmtzr = WordNetLemmatizer()
 
     def fit(self, X, y):
         words = {PAD: 0, UNK: 1}
@@ -44,6 +46,7 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
                     chars[c] = len(chars)
 
             w = self._lower(w)
+            w = self.lmtzr.lemmatize(w)
             if w not in words:
                 words[w] = len(words)
 
@@ -97,6 +100,7 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
                 w = self._normalize_num(w)
                 if self.char_feature:
                     char_ids.append(self._get_char_ids(w))
+                w = self.lmtzr.lemmatize(w)
 
                 if w in self.vocab_word:
                     word_id = self.vocab_word[w]
