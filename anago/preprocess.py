@@ -38,7 +38,6 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
         _vocab = self.vocab_init if self.vocab_init else set(
             itertools.chain(*X))
         for w in _vocab:
-            w = self._normalize_num(w)
             if not self.char_feature:
                 continue
             for c in w:
@@ -46,6 +45,7 @@ class WordPreprocessor(BaseEstimator, TransformerMixin):
                     chars[c] = len(chars)
 
             w = self._lower(w)
+            w = self._normalize_num(w)
             w = self.lmtzr.lemmatize(w)
             if w not in words:
                 words[w] = len(words)
